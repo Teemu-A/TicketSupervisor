@@ -1,9 +1,11 @@
-TicketSupervisor, a personal assistant to proecss simple ServiceNow tickets
-===========================================================================
+# TicketSupervisor
+"a personal assistant to proecss simple ServiceNow tickets"
 
 Hi :) I'm codename "**Paavo**" (just a randomly picked first name of a Finnish male), a simple robot that can help your team manage ServiceNow tickets.
 
 I can be started to run on your desktop (at least Windows 10, linux) to run cyclic loops to find e.g. mathinc incident tickets and perform small updates (like assign, resolve) to them.
+
+## Getting Started
 
 In order for me to become functional, you're kindly adviced
 * to have python (preferably version 3) and some additional libraries installed. Alternatively on Windows, you can run the attached exe.
@@ -12,8 +14,7 @@ In order for me to become functional, you're kindly adviced
 * to start up and give it a try
 
 
-Installation instructions
--------------------------
+### Prerequisites
 
 You do not need to do these if you run the Windows exe (found on dist directory), but it starts a bit slow (takes 10ish seconds to unpack all on a standard laptop). This can be used e.g. on workstations with no admin authority or reach to relevant download sites.
 ~~~
@@ -22,8 +23,10 @@ pip install pyyaml
 pip install pysnow
 ~~~
 
-Sample of my configuration file, TicketSupervisor.cfg
------------------------------------------------------
+### TicketSupervisor.cfg, the environment configuration file
+
+The minimum to specify is ServiceNow instance, user and password
+
 ~~~
 - global:
     hello: world
@@ -42,8 +45,12 @@ Sample of my configuration file, TicketSupervisor.cfg
 ~~~
 
 
-Sample of my ticket rule file, Paavo.txt
-----------------------------------------
+### Paavo.txt, ticket rules
+
+This file contains my rules to process tickets. I read it each time I start a new loop (default: 20 sec).
+
+The file needs to be on yaml format, with blanks and no TAB characters.
+
 ~~~
 ###############################################################################################################
 # A test set of paramerers to find and change arrived incident tickets
@@ -87,18 +94,23 @@ Sample of my ticket rule file, Paavo.txt
 ~~~
 
 
-Sample startup arguments
-------------------------
+### Start up and test
+
+Testing works with --simulate argument: I read the tickets but log only the actions I would perform if I had permission to do so.
+
 ~~~
 TicketSupervisor --simulate --once                  # Find but do not act, run just once
 TicketSupervisor --show1 INCnnnnn                   # Show all attributes of a ticket, to e.g. see the field names
 
-TicketSupervisor                                    # Run as continuous process, daemon
+TicketSupervisor --quiet                            # Run as continuous process (daemon) and log only actions
 ~~~
 
+## Getting Deeper
 
-A longer syntax diagram of the configuration, Paavo.txt
--------------------------------------------------------
+TL;DR: Basically, you do not need to get further unless you really want to.
+
+### A longer syntax diagram of the configuration, Paavo.txt
+
 ~~~
 # Comment
 - name: "[unique_name_of_a_rule]"
@@ -128,12 +140,11 @@ A longer syntax diagram of the configuration, Paavo.txt
 ...
 ~~~
 
-More on variables
------------------
+### More on variables
 
-As said, you can use variable substitution. The bu default available variables are all fields on the ServiceNow ticket and all environment variables visibke on your command shell (use set on windows / env on linux to see them).
+As said, you can use variable substitution. The by default available variables are all fields on the ServiceNow ticket and all environment variables visibke on your command shell (use set on windows / env on linux to see them).
 
-In addition, you can define files with name [appname]-vars-*.txt (e.g. Paavo-vars-test.txt) that are read in for additional variables
+In addition, you can define files with name [appname]-vars-*.txt (e.g. Paavo-vars-test.txt) that I read in for additional variables.
 ~~~
 # Paavo-vars-test.txt
 VAR_NAME: "Value"
@@ -145,20 +156,31 @@ Examples of variables:
 * **USERNAME** The current user running the TicketSupervisor (on Windows, **LOGNAME** is the same in linux)
 * **VAR_NAME** The value is to be assigned based on the contents of the previous variable file
 
-Still more on everything else
------------------------------
-
-When requested so, I keep running forever, having a delay (of default 20 seconds) between each run. On each run, I read in the ticket rule file and the variable files.
-
-Commonly found symptoms and resolutions
+### Commonly found symptoms and resolutions
 * **HTTP code 401** means the ServiceNow userid and password are invalid for the instance. They are specified either on TicketSupervisor.cfg or as command line argument
 * **If I cannot read the configuration**, it normally is a sign of use of TAB characters. The yaml file format requires blanks, no TABs.
 * **If I cannot change some (pull-down) values** on the ticket or do it incorrectly, it can be a cause of languages. Please use the same language settings (preferaly English) both on the rules on Paavo.txt and the user preferences on ServiceNow.
 * **If I keep doing the same thing over and over again**, I am sorry. I'm just a siple robot that does exactly what is requested. To bypass, you could use more precise match argument (e.g. updated_at: "@now - 30s")
 
+### Logging
+I log both on console output and logile, which format is actions-Paavo-YYYYMMDD.log.
+The 1st word of the log message is a message id (thanks, IBM mainframes, learned at least that from there). The 2nd word of the message s a timnestamp of format DD-HHMMSS, and the rest of it contains meaningful information related to the message.
+If you specify **--debug** as run argument, I'll be loud and you'll get a whole lot of messages. If you specify **--quiet**, I'll inform only when I do actions on matching tickets.
+I do have a small utility to summarize from the log files as well. It is the ReportTicketSupervisor. Just run it once you have some logs to see how it works.
+~~~
+PVE008I YY-HHMMSS Initialized by [USER] at [WS], [version], [appname] service awake, cfg @ [rulefile], starting to talk to SNC [instance]. To stop, Ctrl-C or close the window.
+PVE009I YY-HHMMSS ... right now, nnn eligible tickets.
+PVE202I YY-HHMMSS #INCnnnnnn1 == [matched_rule_name] - [short_description]
+PVE402I YY-HHMMSS #INC0053125 -> update: '{'state': 'Assigned', 'assigned_to': '[name]', 'comments': 'PVE402I Paavo -> [matched_rule_name]'}' -> <Response [200 - PUT]>
+PVE201I YY-HHMMSS #INCnnnnnn2 NA - [short_description_of_non_matching_ticket]
+PVE201I YY-HHMMSS #INCnnnnnn3 NA - [short_description_of_non_matching_ticket]
+~~~
 
-License: MIT
-------------
+### Still more on everything else
+
+When requested so, I keep running forever, having a delay (of default 20 seconds) between each run. On each run, I read in the ticket rule file and the variable files.
+
+## License: MIT
 
 Copyright 2019 Teemu Anttila
 
@@ -168,4 +190,9 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+## Acknowledgments
 
+Warm thanks:
+* Robert Wikman for [pysnow](https://github.com/rbw/pysnow)
+* Tina Müller for [PyYAML](https://github.com/yaml/pyyaml.org)
+* Kenneth Reit for [requests](https://pypi.org/project/requests/)
