@@ -1,0 +1,39 @@
+###############################################################################################################
+# A test set of paramerers to find and change arrived incident tickets
+###############################################################################################################
+- name: TestRule1_resolve
+  find:
+  - short_description: "Test ticket"
+  - description: "Automatic"
+  - description: "close"
+  - state: "1"                                      # New
+  act:
+  - update:
+      close_code: "Information"
+      close_notes: "Thank you for the information. This ticket is automatically closed."
+      state: 6                                      # Resolved
+###############################################################################################################
+- name: TestRule2_assign
+  find:
+  - short_description: "Test ticket"
+  - description: "Automatic assign"
+  - state: "1"                                      # New
+  - assigned_to: "="                                # Exactly empty, no value
+  act:
+  - update:
+      state: "Assigned"
+      assignment_group: "[group name]"              # Fill in a relevant group, or just remove the line
+      assigned_to: "[SNC incident agent]"           # Fill in a relevant user id / name
+###############################################################################################################
+- name: TestRule3_do_nothing
+  find:
+  - short_description: "Test ticket"
+  - description: "^Production"                      # Must not contain to match
+  - description: "~please|kind"                     # Regexp: Searched for either string
+  - state: ["1","2"]                                # New or assigned
+  - assigned_to: "="                                # Exactly empty, no value
+  - priority: "4"                                   # Low
+  - created_at: "^@now - 8m"                        # Created more than 8h ago
+  act:
+  - nop
+###############################################################################################################
