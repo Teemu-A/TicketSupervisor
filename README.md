@@ -1,9 +1,9 @@
 # TicketSupervisor
-"a personal assistant to proecss simple ServiceNow tickets"
+"a personal assistant to process simple ServiceNow tickets"
 
-Hi :) I'm codename "**Paavo**" (just a randomly picked first name of a Finnish male), a simple robot that can help your team manage ServiceNow tickets.
+Hi :) I'm code name "**Paavo**" (just a randomly picked first name of a Finnish male), a simple robot that can help your team manage ServiceNow tickets.
 
-I can be started to run on your desktop (at least Windows 10, linux) to run cyclic loops to find e.g. mathinc incident tickets and perform small updates (like assign, resolve) to them.
+I can be started to run on your desktop (at least Windows 10, linux) to run cyclic loops to find e.g. matching ServiceNow (snc) incident tickets and perform small updates (like assign, resolve, log, run an external script/program).
 
 ## Getting Started
 
@@ -36,7 +36,7 @@ The minimum to specify is ServiceNow instance, user and password
     user: uuu                          # A valid user id for the ServiceNow
     pwd: "ppp"                         # Password here, or as start argument -p
     ignore_case: True                  # Do not care about the casing when matching
-    first_match_only: True             # Process just the first matchinf rule
+    first_match_only: True             # Process just the first matching rule
 #   proxy: http://rrr:8080             # Proxy, in case needed
 #   sleep_sec_between: 20              # Wait time in seconds between loops
 #   snc_table: incident                # Name of snc table to process, e.g. sc_req_item
@@ -142,9 +142,9 @@ TL;DR: Basically, you do not need to get further unless you really want to.
 
 ### More on variables
 
-As said, you can use variable substitution. The by default available variables are all fields on the ServiceNow ticket and all environment variables visibke on your command shell (use set on windows / env on linux to see them).
+As said, you can use variable substitution. The by default available variables are all fields on the ServiceNow ticket and all environment variables visible on your command shell (use set on windows / env on linux to see them).
 
-In addition, you can define files with name [appname]-vars-*.txt (e.g. Paavo-vars-test.txt) that I read in for additional variables.
+In addition, you can define files with name `[appname]-vars-*.txt` (e.g. Paavo-vars-test.txt) that I read in for additional variables.
 ~~~
 # Paavo-vars-test.txt
 VAR_NAME: "Value"
@@ -152,20 +152,20 @@ ANOTHER: "Hello, world!"
 ~~~
 
 Examples of variables:
-* **number** The ticket number of current ServiceNow Ticket
-* **USERNAME** The current user running the TicketSupervisor (on Windows, **LOGNAME** is the same in linux)
-* **VAR_NAME** The value is to be assigned based on the contents of the previous variable file
+* `number` The ticket number of current ServiceNow Ticket
+* `USERNAME` The current user running the TicketSupervisor (on Windows, **LOGNAME** is the same in linux)
+* `VAR_NAME` The value is to be assigned based on the contents of the previous variable file
 
 ### Commonly found symptoms and resolutions
 * **HTTP code 401** means the ServiceNow userid and password are invalid for the instance. They are specified either on TicketSupervisor.cfg or as command line argument
 * **If I cannot read the configuration**, it normally is a sign of use of TAB characters. The yaml file format requires blanks, no TABs.
-* **If I cannot change some (pull-down) values** on the ticket or do it incorrectly, it can be a cause of languages. Please use the same language settings (preferaly English) both on the rules on Paavo.txt and the user preferences on ServiceNow.
+* **If I cannot change some (pull-down) values** on the ticket or do it incorrectly, it can be a cause of languages. Please use the same language settings (preferably English) both on the rules on Paavo.txt and the user preferences on ServiceNow.
 * **If I keep doing the same thing over and over again**, I am sorry. I'm just a siple robot that does exactly what is requested. To bypass, you could use more precise match argument (e.g. updated_at: "@now - 30s")
 
 ### Logging
-I log both on console output and logile, which format is actions-Paavo-YYYYMMDD.log.
-The 1st word of the log message is a message id (thanks, IBM mainframes, learned at least that from there). The 2nd word of the message s a timnestamp of format DD-HHMMSS, and the rest of it contains meaningful information related to the message.
-If you specify **--debug** as run argument, I'll be loud and you'll get a whole lot of messages. If you specify **--quiet**, I'll inform only when I do actions on matching tickets.
+I log both on console output and logfile, which format is `actions-Paavo-YYYYMMDD.log`.
+The 1st word of the log message is a message id (thanks, IBM mainframes, learned at least that from there). The 2nd word of the message is a timestamp of format DD-HHMMSS, and the rest of it contains meaningful information related to the message.
+If you specify `--debug` as run argument, I'll be loud and you'll get a whole lot of messages. If you specify `--quiet`, I'll inform only when I do actions on matching tickets.
 I do have a small utility to summarize from the log files as well. It is the ReportTicketSupervisor. Just run it once you have some logs to see how it works.
 ~~~
 PVE008I YY-HHMMSS Initialized by [USER] at [WS], [version], [appname] service awake, cfg @ [rulefile], starting to talk to SNC [instance]. To stop, Ctrl-C or close the window.
@@ -176,9 +176,40 @@ PVE201I YY-HHMMSS #INCnnnnnn2 NA - [short_description_of_non_matching_ticket]
 PVE201I YY-HHMMSS #INCnnnnnn3 NA - [short_description_of_non_matching_ticket]
 ~~~
 
+### Messages
+The 1st word contains a fixed string "PVE", a number and a character. The number shows the place in code / function that caused the message, and the character the severity of the message (D=debug,I=info, W=warning, E=error - kudos to [IBM](https://www.google.com/search?q=ibm+message+severity+tags) for that).
+~~~
+PVE000I When run with --version, printout of version number and immediate exit
+PVE008I Startup message with all the nice details of who/why/what/where/when ... or so
+PVE009I Number of initially qualifying tickets found
+PVE091E I really wasn't feeling well and went on a sick leave. Did you feed me something bad?
+PVE191E Something bad happened on processing tickets. Will continue on the next round.
+PVE192E So sorry, but I ended up into an error on this ticket. Will continue with the next ticket.
+PVE201I This ticket did not match any rule, and I ignored it (with `--quiet` ,will not show this)
+PVE202I Yippee, I found a ticket that matches a rule and will do some actions to it :)
+PVE391W I encountered an error processing a match rule, and skipped the processing of the ticket
+PVE401I Showing happiness of executing nop (no operation) to the ticket
+PVE402I Result of a ticket update, containing details updated and the (HTTP) response code - 200 = done successfully
+PVE403I Printing the external script/command and its response code
+PVE404I Printout of the stderr (standard error) of the script/command that I ran
+PVE405I Printout of the stdout (standard output) of the script/command that I ran
+PVE491E While processing actions to a ticket, I regret of encountering an error which is described here. Actions to this ticket was terminated.
+
+Debugging messages (that I will show only if you ask politely with --debug)
+PVE181D I'm about to read a vars file, and would like to share it with you
+PVE182D In addition to the fields on the ticket, the following variables are available for substitution
+PVE800D Confirming the need of a proxy server that was given to me on the cfg file
+PVE081D I'm just about to query data from SNC with these parameters
+PVE382D Here's the result and criteria for a single match test for a ticket. If false, I will scan the next ticket
+PVE481D After a found matching ticket, I'd like to share the details of an individual action to be performed
+PVE281D I am about to process this rule against this ticket now. First check if it matches, then execute actions if matched
+PVE001D During startup, I read the configuration file and echo back the contents of it
+~~~
+
 ### Still more on everything else
 
 When requested so, I keep running forever, having a delay (of default 20 seconds) between each run. On each run, I read in the ticket rule file and the variable files.
+If you want to stop the execution, enter Ctrl-C, close the window, or restart the machine. One option is to run with `--once` which does not loop forever.
 
 ## License: MIT
 
