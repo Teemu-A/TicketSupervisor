@@ -16,11 +16,11 @@ Installation instructions
 -------------------------
 
 You do not need to do these if you run the Windows exe (found on dist directory), but it starts a bit slow (takes 10ish seconds to unpack all on a standard laptop). This can be used e.g. on workstations with no admin authority or reach to relevant download sites.
-
-# install python (preferable (tested on) v3)
-# pip install pyyaml
-# pip install pysnow
-
+~~~
+install python (preferable (tested on) v3)
+pip install pyyaml
+pip install pysnow
+~~~
 
 Sample of my configuration file, TicketSupervisor.cfg
 -----------------------------------------------------
@@ -36,6 +36,9 @@ Sample of my configuration file, TicketSupervisor.cfg
     first_match_only: True             # Process just the first matchinf rule
 #   proxy: http://rrr:8080             # Proxy, in case needed
 #   sleep_sec_between: 20              # Wait time in seconds between loops
+#   snc_table: incident                # Name of snc table to process, e.g. sc_req_item
+#   snc_state_ignore: 6                # States to deliberately avoid, e.g. ["8","9"]
+#   snc_assign_group: "xxx"            # Force finding on this group only (specify sysid)
 ~~~
 
 
@@ -146,6 +149,13 @@ Still more on everything else
 -----------------------------
 
 When requested so, I keep running forever, having a delay (of default 20 seconds) between each run. On each run, I read in the ticket rule file and the variable files.
+
+Commonly found symptoms and resolutions
+* **HTTP code 401** means the ServiceNow userid and password are invalid for the instance. They are specified either on TicketSupervisor.cfg or as command line argument
+* **If I cannot read the configuration**, it normally is a sign of use of TAB characters. The yaml file format requires blanks, no TABs.
+* **If I cannot change some (pull-down) values** on the ticket or do it incorrectly, it can be a cause of languages. Please use the same language settings (preferaly English) both on the rules on Paavo.txt and the user preferences on ServiceNow.
+* **If I keep doing the same thing over and over again**, I am sorry. I'm just a siple robot that does exactly what is requested. To bypass, you could use more precise match argument (e.g. updated_at: "@now - 30s")
+
 
 License: MIT
 ------------
