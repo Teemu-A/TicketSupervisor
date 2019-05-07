@@ -32,6 +32,7 @@
     snc_state_ignore: "6"                       # Status(es) to ignore on fetching tickets
     snc_table: "incident"                       # Name of SNC table to work on
     snc_assign_group: "[sys_id]"                # Optional, process tickets on this group only
+    ext_cmd_timeout: 30                         # Allow cmd1 process alive max 30sec
 
 * Additional variables from *.vars:
 - vars:
@@ -61,7 +62,7 @@ License: MIT
 ############################################################################################
 import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob
 from datetime import timedelta,datetime
-VERSION="0.8.1"
+VERSION="0.8.3"
 mpfx="PVE"                                           # Mesage prefix
 appname="Paavo"                                      # Name of robot, used for rule file and output
 debug=False                                          # If True, writes verbosely
@@ -255,7 +256,7 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
                    prtmsg("#{} -> [simulation]: '{}'".format(num,run1cmd),"403")
                 else:
                    subcmd=subprocess.Popen(run1cmd,stdout=subprocess.PIPE,shell=True)
-                   (subcmd_out,subcmd_err)=subcmd.communicate(timeout=5)
+                   (subcmd_out,subcmd_err)=subcmd.communicate(timeout=int(cfg['global'].get('ext_cmd_timeout',30)))
                    subcmd_status=subcmd.wait()
                    prtmsg("#{} -> {}: RC={} '{}'".format(num,act1,subcmd_status,run1cmd),"403")
                    CmdResultOutput(num,subcmd_err,"404")
@@ -332,7 +333,7 @@ if __name__ == '__main__':
         parser.add_argument("--simulate", help="Read-only, perform no changes to tickets", action="store_true", dest="simulate")
         parser.add_argument("--once", help="Run just once, not on continuous loop", action="store_true", dest="once")
         parser.add_argument("--quiet", help="Be less verbose", action="store_true", dest="quiet")
-        parser.add_argument("--appname", help="Name of virtual assistant", action="store", dest="appname", default="Paavo", type=str)
+        parser.add_argument("--appname", help="Name of virtual assistant", action="store", dest="appname", default=cfg['global'].get('appname',appname), type=str)
         parser.add_argument("--show1", help="Show all attributes of the ticket, value=INCnnnnnnn", action="store", dest="show1", default="", type=str)
         runa=parser.parse_args(sys.argv[1:])
         debug=runa.debug

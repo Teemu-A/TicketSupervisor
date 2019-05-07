@@ -42,6 +42,7 @@ The minimum to specify is ServiceNow instance, user and password
 #   snc_table: incident                # Name of snc table to process, e.g. sc_req_item
 #   snc_state_ignore: 6                # States to deliberately avoid, e.g. ["8","9"]
 #   snc_assign_group: "xxx"            # Force finding on this group only (specify sysid)
+#   ext_cmd_timeout: 30                # Stop external script/program after 30 seconds
 ~~~
 
 
