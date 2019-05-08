@@ -42,6 +42,7 @@ The minimum to specify is ServiceNow instance, user and password
 #   snc_table: incident                # Name of snc table to process, e.g. sc_req_item
 #   snc_state_ignore: 6                # States to deliberately avoid, e.g. ["8","9"]
 #   snc_assign_group: "xxx"            # Force finding on this group only (specify sysid)
+#   snc_comment_field: "work_notes"    # Own comments goes to this field
 #   ext_cmd_timeout: 30                # Stop external script/program after 30 seconds
 ~~~
 
@@ -129,6 +130,7 @@ TL;DR: Basically, you do not need to get further unless you really want to.
   - update:
     [snc_field1]: "[new_value1]"                              # update a new fixed value to the field
     [snc_field2]: "[new_value2] {snc_field} {env_variable}"   # update a new value with variale substitution
+    [snc_field3]: ["[value1]","[value2]","[value3]"]          # pick randomly one from the list and use it for updating
     assigned_to: "{VAR_NAME}"                                 # Assign to someone described on variable VAR_NAME
   - run1:                                                     # Start an external process with arguments
     cmd: "[script_or_pgm] fix_arg {number} {USERNAME} {tkt_json_file}"   # SNC ticket #, env.var of username, name of file with all details from ticket (json)

@@ -33,6 +33,7 @@
     snc_table: "incident"                       # Name of SNC table to work on
     snc_assign_group: "[sys_id]"                # Optional, process tickets on this group only
     ext_cmd_timeout: 30                         # Allow cmd1 process alive max 30sec
+    snc_comment_field: "work_notes"             # can also be "comments"
 
 * Additional variables from *.vars:
 - vars:
@@ -53,6 +54,7 @@
   - update:
       [snc_field]: "[new_value]"
       [snc_field]: "[new_data] {snc_field} {env_var} [new_data]"
+      [snc_field]: ["[value1]","[value2]"]       # Pick randomly a value from the list
   - run1:
       cmd: "command {snc_field} {env_var} {tkt_json_file}"
       [snc_field]: "[new_data] {snc_field} {env_var} [new_data]"
@@ -60,9 +62,9 @@
 License: MIT
 """
 ############################################################################################
-import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob
+import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random
 from datetime import timedelta,datetime
-VERSION="0.8.3"
+VERSION="0.8.4"
 mpfx="PVE"                                           # Mesage prefix
 appname="Paavo"                                      # Name of robot, used for rule file and output
 debug=False                                          # If True, writes verbosely
@@ -236,10 +238,13 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
         if act1 == "nop":
             prtmsg("#{} -> {}".format(num,act1),"401")
         elif act1 == "update":
-            if 'comments' not in prm:                # Force adding a comment in all cases; default already pretty good
-                prm['comments']="{}402I {} -> {}".format(mpfx,appname,rname)
+            fld_comment=cfg['global'].get('snc_comment_field','work_notes')    # comments / work notes
+            if fld_comment not in prm:                # Force adding a comment in all cases; default already pretty good
+                prm[fld_comment]="{}402I {} -> {}".format(mpfx,appname,rname)
             for key,val in prm.items():    # Substitute variables, e.g. {number}
                 try:
+                    if type(val) is list and len(val)>1:                   # In case value is a table, pick randomly the value from the list
+                         val=random.choice(val)
                     prm[key]=str(val).format(**runargs)
                 except KeyError:
                     pass

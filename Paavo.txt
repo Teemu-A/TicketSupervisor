@@ -23,7 +23,8 @@
   - update:
       state: "Assigned"
       assignment_group: "[group name]"              # Fill in a relevant group, or just remove the line
-      assigned_to: "[SNC incident agent]"           # Fill in a relevant user id / name
+#     assigned_to: "[SNC incident agent]"           # Fill in a relevant user id / name
+      assigned_to: ["[agent-1]","[agent-2]"]        # Fill in a relevant user id / name; random pick one
 ###############################################################################################################
 - name: TestRule3_do_nothing
   find:
