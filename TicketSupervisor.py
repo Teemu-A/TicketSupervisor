@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """ Ticket Supervisor, "Paavo"
     that 
-    - polls in a 10-sec interval loop (unless started as --once)
+    - polls in a 20-sec interval loop (unless started as --once)
     - reads active unassigned tickets from ServiceNow
     - and applies matching actions from yaml file
     - writing log of the actions performed
@@ -64,7 +64,7 @@ License: MIT
 ############################################################################################
 import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random
 from datetime import timedelta,datetime
-VERSION="0.8.4"
+VERSION="0.8.5"
 mpfx="PVE"                                           # Mesage prefix
 appname="Paavo"                                      # Name of robot, used for rule file and output
 debug=False                                          # If True, writes verbosely
@@ -98,13 +98,24 @@ def parse_time(time_str):
     time_params = {name: float(param) for name, param in parts.groupdict().items() if param}
     return timedelta(**time_params)
 
+def SingleRandomValueFromList(val):
+    if type(val) is list and len(val)>1:                   # In case the value is a list,
+        pick1=random.choice(val)                           # pick randomly one value from the list
+        dbgmsg("{} <- {}".format(pick1,val),"082")         # and use it this round
+        return pick1
+    return val
+
 def GetSubArgs():
-    '''Build a dict of values eligible for substitution; using global vars and *-vars-*.txt files.'''
+    '''Build a dict of values eligible for substitution; using global vars and *-vars-*.txt files.
+       In case of values with lists, pick one random value from the list.
+    '''
     dta={}
     mask=os.path.join(cfg['global'].get('cfg_dir',"."),"{}-vars-*.txt".format(appname))
     for filen in glob.glob(mask):
         dbgmsg("Vars @ {}".format(filen),"181")
         dta.update(yaml.load(open(filen,'r'),Loader=yaml.Loader))
+    for key,val in dta.items():
+        dta[key]=SingleRandomValueFromList(val)
     dta.update(os.environ)
     dbgmsg("Vars: {}".format(dta),"182")
     return dta
@@ -243,9 +254,7 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
                 prm[fld_comment]="{}402I {} -> {}".format(mpfx,appname,rname)
             for key,val in prm.items():    # Substitute variables, e.g. {number}
                 try:
-                    if type(val) is list and len(val)>1:                   # In case value is a table, pick randomly the value from the list
-                         val=random.choice(val)
-                    prm[key]=str(val).format(**runargs)
+                    prm[key]=str(SingleRandomValueFromList(val)).format(**runargs)
                 except KeyError:
                     pass
             rsp=UpdateTicket(sco,num,prm)
