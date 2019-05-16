@@ -49,6 +49,7 @@
   - [snc_field]: "*[another_snc_field]"
   - [snc_field]: "=[exact full value]"           # assigned_to: "="               = not assigned to anyone
   - [snc_field]: "@[datetime] [arithmetics]"     # updated_at:  "^@now - 12h30m"  = not between now and offset
+  - [snc_field]: "^~{variable}"                  # snc_field, env_var, or vars file keyword as exclusive regexp
   act:                                        (list of actions)
   - nop
   - update:
@@ -64,7 +65,7 @@ License: MIT
 ############################################################################################
 import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random
 from datetime import timedelta,datetime
-VERSION="0.8.5"
+VERSION="0.8.6"
 mpfx="PVE"                                           # Mesage prefix
 appname="Paavo"                                      # Name of robot, used for rule file and output
 debug=False                                          # If True, writes verbosely
@@ -161,14 +162,20 @@ def ReadQualifyingTickets(sco):
     dbgmsg("Q: {}".format(qb),"081")
     return sco.get(query=qb).all()
 
-def TicketMatchesRule(num,tkt,rulename,match):
+def TicketMatchesRule(num,tkt,rulename,match,subargs):
     '''Compare the values of ticket to single configuration entry. Return True if the ticket matches the criteria.'''
     try:
+        runargs=dict(tkt)            # Build a dict of all possible variables to substitute
+        runargs.update(subargs)      # (ticket, ENV and *vars*txt)
         for keypair in match:
             return_reverse=False
             for key,val in keypair.items():
                 val1="{}".format(val)
                 val2="{}".format(tkt[key])
+                try:                                           # Substitute variables
+                    val1=val1.format(**runargs)
+                except Exception:
+                    pass
                 cmtcc=""
                 if bool(len(val1)) and val1[0] == '^':         # e.g. "^Foo"
                     return_reverse=True
@@ -287,7 +294,7 @@ def ProcessSingleTicket(num,tkt,rules,subargs,sco):
     for rle in rules:
         rname=rle["name"]
         dbgmsg("#{} {}:".format(num,rname),"281")
-        if TicketMatchesRule(num,tkt,rname,rle["find"]):
+        if TicketMatchesRule(num,tkt,rname,rle["find"],subargs):
             prtmsg("#{} == {} - {}".format(num,rname,tkt["short_description"][0:127]),"202")
             actions=ActionsOnTicket(num,rname,tkt,rle["act"],subargs,sco)
             if cfg['global'].get('first_match_only',False):

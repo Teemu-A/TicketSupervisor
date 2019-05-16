@@ -122,7 +122,8 @@ TL;DR: Basically, you do not need to get further unless you really want to.
   - [snc_field]: "~[regex]"                   # matches if field matches the regexp
   - [snc_field]: "^~[regex]"                  # matches if field does not match the regexp
   - [snc_field]: "*[another_snc_field]"       # matches if the other snc field is part of this field
-  - [snc_field]: "^*[another_snc_field]"      # matches if the other snc field is not part of this field
+  - [snc_field]: "^*[another_snc_field]"      # matches if the other snc field is not part of this field  
+  - [snc_field]: "^~{VAR_NAME}"               # matches if field does not match the regexp identified on stopword variable VAR_NAME
   - [snc_field]: "@now - 2m30s"               # matches if the datetime on the field is between now and now - 2min 30sec
   - [snc_field]: "^@now - 7h45m"              # matches if the datetime on the field is older than 7hrs 45min ago
   act:
