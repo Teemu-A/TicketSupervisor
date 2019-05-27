@@ -34,6 +34,8 @@
     snc_assign_group: "[sys_id]"                # Optional, process tickets on this group only
     ext_cmd_timeout: 30                         # Allow cmd1 process alive max 30sec
     snc_comment_field: "work_notes"             # can also be "comments"
+    ext_cmd_timeout: 30                         # Stop external script/program after 30 seconds
+    max_retry_connect: 15                       # Max number of consequent connection errors tolerated
 
 * Additional variables from *.vars:
 - vars:
