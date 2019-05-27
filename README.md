@@ -44,6 +44,7 @@ The minimum to specify is ServiceNow instance, user and password
 #   snc_assign_group: "xxx"            # Force finding on this group only (specify sysid)
 #   snc_comment_field: "work_notes"    # Own comments goes to this field
 #   ext_cmd_timeout: 30                # Stop external script/program after 30 seconds
+#   max_retry_connect: 15              # Max number of consequent connection errors tolerated
 ~~~
 
 
@@ -175,7 +176,7 @@ I do have a small utility to summarize from the log files as well. It is the Rep
 PVE008I YY-HHMMSS Initialized by [USER] at [WS], [version], [appname] service awake, cfg @ [rulefile], starting to talk to SNC [instance]. To stop, Ctrl-C or close the window.
 PVE009I YY-HHMMSS ... right now, nnn eligible tickets.
 PVE202I YY-HHMMSS #INCnnnnnn1 == [matched_rule_name] - [short_description]
-PVE402I YY-HHMMSS #INC0053125 -> update: '{'state': 'Assigned', 'assigned_to': '[name]', 'comments': 'PVE402I Paavo -> [matched_rule_name]'}' -> <Response [200 - PUT]>
+PVE402I YY-HHMMSS #INCnnnnnn1 -> update: '{'state': 'Assigned', 'assigned_to': '[name]', 'comments': 'PVE402I Paavo -> [matched_rule_name]'}' -> <Response [200 - PUT]>
 PVE201I YY-HHMMSS #INCnnnnnn2 NA - [short_description_of_non_matching_ticket]
 PVE201I YY-HHMMSS #INCnnnnnn3 NA - [short_description_of_non_matching_ticket]
 ~~~
@@ -187,6 +188,7 @@ PVE000I When run with --version, printout of version number and immediate exit
 PVE008I Startup message with all the nice details of who/why/what/where/when ... or so
 PVE009I Number of initially qualifying tickets found
 PVE091E I really wasn't feeling well and went on a sick leave. Did you feed me something bad?
+PVE092W Retrying a connection error a few times
 PVE191E Something bad happened on processing tickets. Will continue on the next round.
 PVE192E So sorry, but I ended up into an error on this ticket. Will continue with the next ticket.
 PVE201I This ticket did not match any rule, and I ignored it (with `--quiet` ,will not show this)

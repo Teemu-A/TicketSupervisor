@@ -65,7 +65,8 @@ License: MIT
 ############################################################################################
 import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random
 from datetime import timedelta,datetime
-VERSION="0.8.6"
+from requests.exceptions import ConnectionError
+VERSION="0.8.7"
 mpfx="PVE"                                           # Mesage prefix
 appname="Paavo"                                      # Name of robot, used for rule file and output
 debug=False                                          # If True, writes verbosely
@@ -325,12 +326,24 @@ def RunOnce(sco,cfgfile):
 
 def TicketSupervisor(sco,cfgfile,mpfx="PVE"):
     '''Main routine for the supervisor. Build a cfg, enter target + credentials and start running'''
+    errRetryCount=0
     for rle in ReadCfg(cfgfile):
         dbgmsg("{}/{} cfg: {}".format(me,appname,rle),"001")
     prtmsg("Initialized by {} at {}, v{}, {} awake, cfg @ {}, starting to work on {} at SNC {}.".format(GetUserName(),platform.node(),VERSION,appname,cfgfile,cfg['global'].get('snc_table','incident'),snc),"008")
     prtmsg("... right now, {} eligible tickets. To stop, Ctrl-C or close the window.".format(len(ReadQualifyingTickets(sco))),"009")
     while True:
-        RunOnce(sco,cfgfile)
+        try:
+            RunOnce(sco,cfgfile)
+            errRetryCount=0
+        except ConnectionError as e:
+            errRetryCount+=1
+            maxRetryCount=cfg['global'].get('max_retry_connect',15)
+            if errRetryCount <= maxRetryCount:
+                prtmsg("Retrying (#{}/{}) a challenging connection in a while - {}".format(errRetryCount,maxRetryCount,type(e)),"092","W")
+                time.sleep(30)
+            else:
+                prtmsg("Terminating due continuing connection trouble","092","E")
+                raise e
         time.sleep(cfg['global'].get('sleep_sec_between',20))
 ############################################################################################
 if __name__ == '__main__':
@@ -374,4 +387,4 @@ if __name__ == '__main__':
         else:                                ##################################################### Run as daemon, looping every n+1 seconds
             TicketSupervisor(sco,cfgfile)
     except Exception as e:
-        prtmsg("Oops. Something went wrong, {} on sick leave, DG: {}".format(appname,str(e)),"091","E")
+        prtmsg("Oops. Something went wrong ({}), {} on sick leave, DG: {}".format(type(e),appname,str(e)),"091","E")
