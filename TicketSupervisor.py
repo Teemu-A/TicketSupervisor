@@ -123,7 +123,7 @@ def SelectSingleValue(val,robotname,key):                  # Picks a value to us
     :note:: uses cfg:value_round_robin selection strategy (random or round robin)
     :return str: single string to use
     """
-	if type(val) is not list:                              # For single item,
+    if type(val) is not list:                              # For single item,
         return val                                         # ... use it
     if cfg.get('value_round_robin',False):                 # Use round robin?
         ix=0                                               # ... determine which one to use next
