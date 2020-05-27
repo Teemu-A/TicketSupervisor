@@ -8,36 +8,44 @@
 
 * Prerequisites
     python (preferably v3)
-    pip install pyyaml
-    pip install pysnow
+    pip install pyyaml,pysnow
 
 * For windows exe build
-    pip install pyinstaller
-    pyinstaller --onefile TicketSupervisor.py
+    pip install pyinstaller pywin32
+    pip install python-magic-bin==0.4.14
+    pyinstaller --clean --noconfirm --onefile TicketSupervisor.py
 
 * Use: TicketSupervisor.py -s "[snc_instance]" -u "[snc_userid]" -p "[snc_password]" [--debug] [--simulate] [--once]
   ... or use the cfg file (desc below) to specify the things
 
 * TicketSupervisor.cfg format:
-- global:
+  global:
     snc: snc_instance_abbrev                    # 1st qualifier of SNC service name
     user: snc_userid                            # Authorized SNC user id
     pwd: snc_password
-    appname: Paavo                              # name of the robot
+    appname: ["Paavo","Sirkku"]                 # name of the robot
     proxy: http://your-proxy-name:8080          # In case proxy needed to connect
     cfg_dir: .                                  # Directory where ticket rule cfg is loacted ([appname].txt)
     log_dir: .                                  # If exists, will log into "actions-[appname].YYYYMMDD.log" there
     sleep_sec_between: 20                       # Wait time between loops, unless --once
     first_match_only: True                      # On True, stops scanning rules after 1st match
+    ext_cmd_timeout: 30                         # Stop external script/program after 30 seconds
+    max_retry_connect: 15                       # Max number of consequent connection errors tolerated
+    value_round_robin: False                    # use round-robin to pick values from list
+  Paavo:                                       ## Cfg entries overriding global ones for "Paavo"
     snc_state_ignore: "6"                       # Status(es) to ignore on fetching tickets
     snc_table: "incident"                       # Name of SNC table to work on
     snc_assign_group: "[sys_id]"                # Optional, process tickets on this group only
-    ext_cmd_timeout: 30                         # Allow cmd1 process alive max 30sec
     snc_comment_field: "work_notes"             # can also be "comments"
-    ext_cmd_timeout: 30                         # Stop external script/program after 30 seconds
-    max_retry_connect: 15                       # Max number of consequent connection errors tolerated
+    snc_shw_descr: "short_description"          # the field to show e.g. no debug messages
+  Sirkku:                                      ## Cfg entries overriding global ones for "Sirkku"
+    snc_table: "sc_task"
+    snc_shw_descr: "u_short_description"
+    snc_state_ignore: ["9","10"]
+    snc_assign_group: ["z111222333","aaaabbbbcccc"]
+    msg_prefix: SKU                             # Message prefix for output log
 
-* Additional variables from *.vars:
+* Additional variables from *.vars ([robot]-vars-*.txt or Global-vars-*.txt):
 - vars:
     key: value
 
@@ -63,18 +71,24 @@
       [snc_field]: "[new_data] {snc_field} {env_var} [new_data]"
 
 License: MIT
+
+20200325: cfg['global'].get('snc_shw_descr','short_description') to support sctask u_short_description
+20200408: v2.0 with support for multiple robots / task types
+20200527: v2.1 with optional round-robin value picker from list
 """
 ############################################################################################
-import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random
+import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random, copy
 from datetime import timedelta,datetime
 from requests.exceptions import ConnectionError
-VERSION="0.8.7"
-mpfx="PVE"                                           # Mesage prefix
-appname="Paavo"                                      # Name of robot, used for rule file and output
+VERSION="2.1.0"
+mpfx0="RBT"                                          # Default message prefix
+mpfx="RBT"                                           # Current message prefix
+appname="Paavo"                                      # Name of current robot, used for rule file and output
+robotname="Paavo"
 debug=False                                          # If True, writes verbosely
 quiet=False                                          # If True, shows only matching tickets
 simulation=False                                     # If True, does not perform actions
-cfg={'global': {'dummy': 'null'}}                    # dict of configurations
+whole_cfg={'global': {'dummy': 'null'}}
 log_dir=""                                           # If has a value, writes log
 regex_timedelta = re.compile(r'^((?P<days>[\.\d]+?)d)?((?P<hours>[\.\d]+?)h)?((?P<minutes>[\.\d]+?)m)?((?P<seconds>[\.\d]+?)s)?$')
 ############################################################################################
@@ -82,7 +96,7 @@ def prtmsg(txt,mid="000",msuf="I"):
     '''Print a message to the console. Include a message prefix and timestamp'''
     logstr="{}{}{} {} {}".format(mpfx,mid,msuf,datetime.now().strftime('%d-%H%M%S'),txt)
     if log_dir:                                       # Output to file as well if log_dir on cfg
-        with open(os.path.join(log_dir,"actions-{}-{}.log".format(appname,datetime.now().strftime('%Y%m%d'))),"a") as logf:
+        with open(os.path.join(log_dir,"actions-{}-{}.log".format(robotname,datetime.now().strftime('%Y%m%d'))),"a") as logf:
             logf.write("{}\n".format(logstr))
     print(logstr)
 
@@ -102,25 +116,52 @@ def parse_time(time_str):
     time_params = {name: float(param) for name, param in parts.groupdict().items() if param}
     return timedelta(**time_params)
 
-def SingleRandomValueFromList(val):
-    if type(val) is list and len(val)>1:                   # In case the value is a list,
-        pick1=random.choice(val)                           # pick randomly one value from the list
-        dbgmsg("{} <- {}".format(pick1,val),"082")         # and use it this round
-        return pick1
-    return val
+def SelectSingleValue(val,robotname,key):                  # Picks a value to use
+    """
+    Picks a value to use on updating a field.
+    :param val: "test1" , ["value1","value2","value3"], {VARIABLE}
+    :note:: uses cfg:value_round_robin selection strategy (random or round robin)
+    :return str: single string to use
+    """
+	if type(val) is not list:                              # For single item,
+        return val                                         # ... use it
+    if cfg.get('value_round_robin',False):                 # Use round robin?
+        ix=0                                               # ... determine which one to use next
+        statefile=GetCfgFileName("z_state_{}".format(robotname))
+        states={}
+        try:
+            if os.path.isfile(statefile):
+                states=ReadCfg(statefile)                  # read current ix values
+        except Exception as e:
+            prtmsg("{} {} ?!? {}".format(robotname,key,e),"084","W")
+        pick1=states.get(key,-1)+1                         # default=0, else +1
+        if pick1>=len(val):                                # if beyond
+            pick1=0                                        # ... start over
+        states[key]=pick1
+        try:
+            with open(statefile,'w') as save_state:        # store the current value to file
+                yaml.dump(states,save_state,default_flow_style=False)
+        except Exception as e:
+            prtmsg("{} {} ?!? {}".format(robotname,key,e),"085","W")
+        use1=val[pick1]
+        dbgmsg("{} <- {}".format(use1,val),"083")          # and use it this round
+    else:                                                  # no round robin, pick random
+        use1=random.choice(val)                            # pick randomly one value from the list
+        dbgmsg("{} <- {}".format(use1,val),"082")          # and use it this round
+    return use1
 
-def GetSubArgs():
+def GetSubArgs(robotname):
     '''Build a dict of values eligible for substitution; using global vars and *-vars-*.txt files.
        In case of values with lists, pick one random value from the list.
     '''
     dta={}
-    mask=os.path.join(cfg['global'].get('cfg_dir',"."),"{}-vars-*.txt".format(appname))
-    for filen in glob.glob(mask):
-        dbgmsg("Vars @ {}".format(filen),"181")
-        dta.update(yaml.load(open(filen,'r'),Loader=yaml.Loader))
-    for key,val in dta.items():
-        dta[key]=SingleRandomValueFromList(val)
-    dta.update(os.environ)
+    masks=[os.path.join(cfg.get('cfg_dir',"."),"{}-vars-*.txt".format(robotname))
+        ,os.path.join(cfg.get('cfg_dir',"."),"Global-vars-*.txt")]
+    for mask in masks:
+        for filen in glob.glob(mask):          # Read in all vars files
+            dbgmsg("Vars @ {}".format(filen),"181")
+            dta.update(yaml.load(open(filen,'r'),Loader=yaml.Loader))
+    dta.update(os.environ)                     # ...and add ENV vars
     dbgmsg("Vars: {}".format(dta),"182")
     return dta
 
@@ -139,30 +180,45 @@ def ReadCfg(cfgfile):
     return ymlcfg
 
 def GetUserName():
+    '''Figure out running user name from selected env vars'''
     for varname in ['USERNAME','LOGNAME']:
         if varname in os.environ:
             return os.environ[varname]
+
+def GetCfgFileName(robotname):
+    return os.path.join(cfg.get('cfg_dir',"."),"{}.txt".format(robotname))
+
+def EffectiveCfgForOneRobot(robotname):
+    '''Append robot specific to global cfg and return'''
+    cfg1={}
+    for rob1 in ["global",robotname]:       # Pick sections to active cfg for this robot
+        if rob1 in whole_cfg:
+            for key, value in whole_cfg[rob1].items():
+                cfg1[key]=value
+    return cfg1
 ############################################################################################
 def SncConnection(snc,user,pwd):
+    '''Establish a connection to ServiceNow'''
     s=requests.Session()
-    prx=cfg['global'].get('proxy','')
+    prx=cfg.get('proxy','')
     if prx:
-        dbgmsg("Using proxy: {}".format(prx))
+        dbgmsg("Using proxy: {}".format(prx),"183")
         s.proxies.update({'https': prx})
     s.auth=requests.auth.HTTPBasicAuth(user,pwd)
-    return pysnow.Client(instance=snc,session=s).resource(api_path='/table/{}'.format(cfg['global'].get('snc_table','incident')))
-#   c.parameters.display_value=True
-#   c.parameters.limit=222
+    return pysnow.Client(instance=snc,session=s)
+
+def SncResource(sncclient,snctable):
+    return sncclient.resource(api_path='/table/{}'.format(snctable))
 
 def ReadQualifyingTickets(sco):
     '''Read from ServiceNow, return the result or raise an exception.'''
     qb=pysnow.QueryBuilder().field('active').equals("1")
-    if cfg['global'].get('snc_state_ignore',"6"):
-        qb.AND().field('state').not_equals(cfg['global'].get('snc_state_ignore',"6"))
-    if cfg['global'].get('snc_assign_group',""):
-        qb.AND().field('assignment_group').equals(cfg['global'].get('snc_assign_group',""))
+    if cfg.get('snc_state_ignore',"6"):
+        qb.AND().field('state').not_equals(cfg.get('snc_state_ignore',"6"))
+    if cfg.get('snc_assign_group',""):
+        qb.AND().field('assignment_group').equals(cfg.get('snc_assign_group',""))
     qb.AND().field("sysparm_limit").equals("333")
-    dbgmsg("Q: {}".format(qb),"081")
+    dbgmsg("Q: {}".format(qb),"184")
     return sco.get(query=qb).all()
 
 def TicketMatchesRule(num,tkt,rulename,match,subargs):
@@ -213,7 +269,7 @@ def TicketMatchesRule(num,tkt,rulename,match,subargs):
                     val1="{}".format(tkt[val1[1:]])
                 else:
                     val2="{}".format(tkt[key])
-                if cfg['global'].get('ignore_case',False):     # Force lower case to compare
+                if cfg.get('ignore_case',False):               # Force lower case to compare
                     val1=val1.lower()
                     val2=val2.lower()
                 val1=val1.replace('\n',' ').replace('\r','')   # Replace newlines with blanks before comparing strings
@@ -259,12 +315,14 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
         if act1 == "nop":
             prtmsg("#{} -> {}".format(num,act1),"401")
         elif act1 == "update":
-            fld_comment=cfg['global'].get('snc_comment_field','work_notes')    # comments / work notes
+            fld_comment=cfg.get('snc_comment_field','work_notes')    # comments / work notes
             if fld_comment not in prm:                # Force adding a comment in all cases; default already pretty good
-                prm[fld_comment]="{}402I {} -> {}".format(mpfx,appname,rname)
+                prm[fld_comment]="{}402I {} -> {}".format(mpfx,robotname,rname)
             for key,val in prm.items():    # Substitute variables, e.g. {number}
                 try:
-                    prm[key]=str(SingleRandomValueFromList(val)).format(**runargs)
+                    prm[key]=SelectSingleValue(val,rname,key).format(**runargs)      # Pick value & substitute value
+                    if prm[key][0]=='[' and prm[key][-1]==']':                       # Got a list? Pick single value
+                        prm[key]=str(SelectSingleValue(eval(prm[key]),rname,key))
                 except KeyError:
                     pass
             rsp=UpdateTicket(sco,num,prm)
@@ -273,14 +331,14 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
             tfd, tfile = tempfile.mkstemp()
             try:
                 with os.fdopen(tfd,'w',encoding='utf-8') as tmp:       # Write ticket details to a temp file
-                    tmp.write(str(tkt))
+                    tmp.write(str(eval(json.dumps(tkt))))              # Ugly fix of unicode strings
                 runargs['tkt_json_file']=tfile
                 run1cmd=prm['cmd'].format(**runargs)
                 if simulation:
                    prtmsg("#{} -> [simulation]: '{}'".format(num,run1cmd),"403")
                 else:
                    subcmd=subprocess.Popen(run1cmd,stdout=subprocess.PIPE,shell=True)
-                   (subcmd_out,subcmd_err)=subcmd.communicate(timeout=int(cfg['global'].get('ext_cmd_timeout',30)))
+                   (subcmd_out,subcmd_err)=subcmd.communicate(timeout=int(cfg.get('ext_cmd_timeout',30)))
                    subcmd_status=subcmd.wait()
                    prtmsg("#{} -> {}: RC={} '{}'".format(num,act1,subcmd_status,run1cmd),"403")
                    CmdResultOutput(num,subcmd_err,"404")
@@ -291,62 +349,70 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
             prtmsg("#{} ?? {} {}".format(num,act1,prm),"491","E")
     return True
 
-def ProcessSingleTicket(num,tkt,rules,subargs,sco):
+def ProcessSingleTicket(num,tkt,rules,subargs,cfg,sco):
     '''For given ticket, find matching rule(s) and execute actions from them. Return true if something was done.'''
     actions=False
-    for rle in rules:
+    for rle in copy.deepcopy(rules):   # Use my own copy of rules, as they may have varying variable substitutions
         rname=rle["name"]
-        dbgmsg("#{} {}:".format(num,rname),"281")
+        dbgmsg("#{} {}:".format(num,rname),"282")
         if TicketMatchesRule(num,tkt,rname,rle["find"],subargs):
-            prtmsg("#{} == {} - {}".format(num,rname,tkt["short_description"][0:127]),"202")
+            prtmsg("#{} == {} - {}".format(num,rname,tkt[cfg.get('snc_shw_descr','short_description')][0:127]),"202")
             actions=ActionsOnTicket(num,rname,tkt,rle["act"],subargs,sco)
-            if cfg['global'].get('first_match_only',False):
+            if cfg.get('first_match_only',False):
                 return actions
     if not actions and not quiet:
-        prtmsg("#{} NA - {}".format(num,tkt["short_description"][0:127]),"201")
+        prtmsg("#{} NA - {}".format(num,tkt[cfg.get('snc_shw_descr','short_description')][0:127]),"201")
     return actions
 
-def ProcessTickets(tkts,cfgfile,sco):
-    '''Process fetched tickets that are eligible for possible actions'''
-    try:
-        rules=ReadCfg(cfgfile)
-        subargs=GetSubArgs()
-        for tkt in tkts:
-            num=tkt["number"]
+def LoopRobotsOnce(scli):
+    '''Process open tickets once for all robots.'''
+    global robotname
+    for robotname in appname:
+        cfg=EffectiveCfgForOneRobot(robotname)
+        global mpfx
+        mpfx=cfg.get('msg_prefix',mpfx0)
+        sco=SncResource(scli,cfg.get('snc_table','incident'))
+        tkts=ReadQualifyingTickets(sco)
+        if tkts:
             try:
-                ProcessSingleTicket(num,tkt,rules,subargs,sco)
+                rules=ReadCfg(GetCfgFileName(robotname))
+                subargs=GetSubArgs(robotname)
+                dbgmsg("{} n={}, {}".format(robotname,len(tkts),rules),"281")
+                for tkt in tkts:
+                    num=tkt["number"]
+                    try:
+                        ProcessSingleTicket(num,tkt,rules,subargs,cfg,sco)
+                    except Exception as e:
+                        prtmsg("#{} - unsuccessful, {} trying to continue, DG: {}".format(num,robotname,str(e)),"192","E")
             except Exception as e:
-                prtmsg("#{} - unsuccessful, {} trying to continue, DG: {}".format(num,appname,str(e)),"192","E")
-    except Exception as e:
-        prtmsg("Failed, {} tries to continue, DG: {}".format(appname,str(e)),"191","E")
+                prtmsg("Failed, {} tries to continue, DG: {}".format(robotname,str(e)),"191","E")
+        mpfx=mpfx0
 
-def RunOnce(sco,cfgfile):
-    '''Process open tickets once. Args: SNC connection, name of cfg file'''
-    tkts=ReadQualifyingTickets(sco)
-    if tkts:
-        ProcessTickets(tkts,cfgfile,sco)
-
-def TicketSupervisor(sco,cfgfile,mpfx="PVE"):
+def TicketSupervisor(scli):
     '''Main routine for the supervisor. Build a cfg, enter target + credentials and start running'''
+    prtmsg("Initialized by {} at {}, v{}, {} awake, starting to work at SNC {}. To stop, Ctrl-C or close the window.".format(GetUserName(),platform.node(),VERSION,appname,snc),"008")
     errRetryCount=0
-    for rle in ReadCfg(cfgfile):
-        dbgmsg("{}/{} cfg: {}".format(me,appname,rle),"001")
-    prtmsg("Initialized by {} at {}, v{}, {} awake, cfg @ {}, starting to work on {} at SNC {}.".format(GetUserName(),platform.node(),VERSION,appname,cfgfile,cfg['global'].get('snc_table','incident'),snc),"008")
-    prtmsg("... right now, {} eligible tickets. To stop, Ctrl-C or close the window.".format(len(ReadQualifyingTickets(sco))),"009")
+    for robotname in appname:                                       ### Show configuration file(s)
+        cfg=EffectiveCfgForOneRobot(robotname)
+        for rle in ReadCfg(GetCfgFileName(robotname)):
+            dbgmsg("{}/{} cfg: {}".format(me,robotname,rle),"001")
+        sco=SncResource(scli,cfg.get('snc_table','incident'))
+        prtmsg("... right now, {} eligible {} tickets for {}.".format(len(ReadQualifyingTickets(sco)),cfg.get('snc_table','incident'),robotname),"009")
+
     while True:
         try:
-            RunOnce(sco,cfgfile)
+            LoopRobotsOnce(scli)
             errRetryCount=0
         except ConnectionError as e:
             errRetryCount+=1
-            maxRetryCount=cfg['global'].get('max_retry_connect',15)
+            maxRetryCount=whole_cfg['global'].get('max_retry_connect',15)
             if errRetryCount <= maxRetryCount:
                 prtmsg("Retrying (#{}/{}) a challenging connection in a while - {}".format(errRetryCount,maxRetryCount,type(e)),"092","W")
                 time.sleep(30)
             else:
                 prtmsg("Terminating due continuing connection trouble","092","E")
                 raise e
-        time.sleep(cfg['global'].get('sleep_sec_between',20))
+        time.sleep(whole_cfg['global'].get('sleep_sec_between',20))
 ############################################################################################
 if __name__ == '__main__':
     try:
@@ -356,37 +422,41 @@ if __name__ == '__main__':
             sys.exit()
         cfgfn="TicketSupervisor.cfg"
         if os.path.isfile(cfgfn):                                            ### Fetch .cfg
-            cfg=yaml.load(open(cfgfn,'r'),Loader=yaml.Loader)[0]
-        log_dir=cfg['global'].get('log_dir','')
+            whole_cfg=yaml.load(open(cfgfn,'r'),Loader=yaml.Loader)
+        log_dir=whole_cfg['global'].get('log_dir','')
         parser=argparse.ArgumentParser(description='Personal Assistant for ServiceNow Tickets. Performs actions against arrived matching tickets. Configuration on [appname].txt, run args on TiecketSupervisor.cfg')
-        snc=cfg['global'].get('snc','')
+        snc=whole_cfg['global'].get('snc','')
         parser.add_argument("-s", "--servicenow", help="The name of the ServiceNow system", action="store", default=snc, type=str, required=bool(not snc))
-        user=cfg['global'].get('user','')
+        user=whole_cfg['global'].get('user','')
         parser.add_argument("-u", "--username", help="Username to connect ServiceNow system", action="store", default=user, type=str, required=bool(not user))
-        pwd=cfg['global'].get('pwd','')
+        pwd=whole_cfg['global'].get('pwd','')
         parser.add_argument("-p", "--password", help="Password related to username", action="store", default=pwd, type=str, required=bool(not pwd))
         parser.add_argument("--debug", help="Generate additional diagnostic messages", action="store_true", dest="debug")
         parser.add_argument("--simulate", help="Read-only, perform no changes to tickets", action="store_true", dest="simulate")
         parser.add_argument("--once", help="Run just once, not on continuous loop", action="store_true", dest="once")
         parser.add_argument("--quiet", help="Be less verbose", action="store_true", dest="quiet")
-        parser.add_argument("--appname", help="Name of virtual assistant", action="store", dest="appname", default=cfg['global'].get('appname',appname), type=str)
+        parser.add_argument("--appname", help="Name of virtual assistant", action="store", dest="appname", default=whole_cfg['global'].get('appname',appname), type=str)
         parser.add_argument("--show1", help="Show all attributes of the ticket, value=INCnnnnnnn", action="store", dest="show1", default="", type=str)
         runa=parser.parse_args(sys.argv[1:])
         debug=runa.debug
         quiet=runa.quiet
         simulation=runa.simulate
         appname=runa.appname
+        if type(appname) is str:
+            appname=[appname]
         snc=runa.servicenow
         user=runa.username
         pwd=runa.password
-        cfgfile=os.path.join(cfg['global'].get('cfg_dir',"."),"{}.txt".format(appname))
-        sco=SncConnection(snc,user,pwd)
+        cfg=EffectiveCfgForOneRobot(appname[0])
+        cfgfile=GetCfgFileName(appname[0])
+        scli=SncConnection(snc,user,pwd)
         if runa.show1:                       ##################################################### Show contents of a ticket (e.g. to see field names and values)
+            sco=SncResource(scli,'incident')
             for tkt in sco.get(query=(pysnow.QueryBuilder().field('number').equals(runa.show1))).all():
                 print(json.dumps(tkt,indent=4,sort_keys=True))
         elif runa.once:                      ##################################################### Run single time
-            RunOnce(sco,cfgfile)
+            LoopRobotsOnce(scli)
         else:                                ##################################################### Run as daemon, looping every n+1 seconds
-            TicketSupervisor(sco,cfgfile)
+            TicketSupervisor(scli)
     except Exception as e:
         prtmsg("Oops. Something went wrong ({}), {} on sick leave, DG: {}".format(type(e),appname,str(e)),"091","E")

@@ -16,11 +16,9 @@ In order for me to become functional, you're kindly adviced
 
 ### Prerequisites
 
-You do not need to do these if you run the Windows exe (found on dist directory), but it starts a bit slow (takes 10ish seconds to unpack all on a standard laptop). This can be used e.g. on workstations with no admin authority or reach to relevant download sites.
 ~~~
 install python (preferable (tested on) v3)
-pip install pyyaml
-pip install pysnow
+pip install pyyaml,pysnow
 ~~~
 
 ### TicketSupervisor.cfg, the environment configuration file
@@ -28,23 +26,24 @@ pip install pysnow
 The minimum to specify is ServiceNow instance, user and password
 
 ~~~
-- global:
-    hello: world
-    log_dir: "."                       # Log to current directory
-    appname: Paavo                     # Name of the robot
-    snc: sss                           # 1st qualifier of ServiceNow URL
-    user: uuu                          # A valid user id for the ServiceNow
-    pwd: "ppp"                         # Password here, or as start argument -p
-    ignore_case: True                  # Do not care about the casing when matching
-    first_match_only: True             # Process just the first matching rule
-#   proxy: http://rrr:8080             # Proxy, in case needed
-#   sleep_sec_between: 20              # Wait time in seconds between loops
-#   snc_table: incident                # Name of snc table to process, e.g. sc_req_item
-#   snc_state_ignore: 6                # States to deliberately avoid, e.g. ["8","9"]
-#   snc_assign_group: "xxx"            # Force finding on this group only (specify sysid)
-#   snc_comment_field: "work_notes"    # Own comments goes to this field
-#   ext_cmd_timeout: 30                # Stop external script/program after 30 seconds
-#   max_retry_connect: 15              # Max number of consequent connection errors tolerated
+global:
+  hello: world
+  log_dir: "."                       # Log to current directory
+  appname: Paavo                     # Name of the robot
+  snc: sss                           # 1st qualifier of ServiceNow URL
+  user: uuu                          # A valid user id for the ServiceNow
+  pwd: "ppp"                         # Password here, or as start argument -p
+  ignore_case: True                  # Do not care about the casing when matching
+  first_match_only: True             # Process just the first matching rule
+# proxy: http://rrr:8080             # Proxy, in case needed
+# sleep_sec_between: 20              # Wait time in seconds between loops
+# snc_table: incident                # Name of snc table to process, e.g. sc_req_item
+# snc_state_ignore: 6                # States to deliberately avoid, e.g. ["8","9"]
+# snc_assign_group: "xxx"            # Force finding on this group only (specify sysid)
+# snc_comment_field: "work_notes"    # Own comments goes to this field
+# ext_cmd_timeout: 30                # Stop external script/program after 30 seconds
+# max_retry_connect: 15              # Max number of consequent connection errors tolerated
+# value_round_robin: False           # use round-robin to pick values from list
 ~~~
 
 
@@ -132,7 +131,7 @@ TL;DR: Basically, you do not need to get further unless you really want to.
   - update:
     [snc_field1]: "[new_value1]"                              # update a new fixed value to the field
     [snc_field2]: "[new_value2] {snc_field} {env_variable}"   # update a new value with variale substitution
-    [snc_field3]: ["[value1]","[value2]","[value3]"]          # pick randomly one from the list and use it for updating
+    [snc_field3]: ["[value1]","[value2]","[value3]"]          # pick one from the list and use it for updating, see value_round_robin
     assigned_to: "{VAR_NAME}"                                 # Assign to someone described on variable VAR_NAME
   - run1:                                                     # Start an external process with arguments
     cmd: "[script_or_pgm] fix_arg {number} {USERNAME} {tkt_json_file}"   # SNC ticket #, env.var of username, name of file with all details from ticket (json)
