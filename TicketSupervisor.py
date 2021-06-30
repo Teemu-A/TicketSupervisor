@@ -75,12 +75,13 @@ License: MIT
 20200325: cfg['global'].get('snc_shw_descr','short_description') to support sctask u_short_description
 20200408: v2.0 with support for multiple robots / task types
 20200527: v2.1 with optional round-robin value picker from list
+20210630: v2.2 adjust cfg scoping on SNC setup
 """
 ############################################################################################
 import yaml, pysnow, requests, argparse, os, sys, platform, json, time, re, tempfile, subprocess, glob, random, copy
 from datetime import timedelta,datetime
 from requests.exceptions import ConnectionError
-VERSION="2.1.0"
+VERSION="2.2.0"
 mpfx0="RBT"                                          # Default message prefix
 mpfx="RBT"                                           # Current message prefix
 appname="Paavo"                                      # Name of current robot, used for rule file and output
@@ -116,7 +117,7 @@ def parse_time(time_str):
     time_params = {name: float(param) for name, param in parts.groupdict().items() if param}
     return timedelta(**time_params)
 
-def SelectSingleValue(val,robotname,key):                  # Picks a value to use
+def SelectSingleValue(val,robotname,key,cfg):              # Picks a value to use
     """
     Picks a value to use on updating a field.
     :param val: "test1" , ["value1","value2","value3"], {VARIABLE}
@@ -150,7 +151,7 @@ def SelectSingleValue(val,robotname,key):                  # Picks a value to us
         dbgmsg("{} <- {}".format(use1,val),"082")          # and use it this round
     return use1
 
-def GetSubArgs(robotname):
+def GetSubArgs(robotname,cfg):
     '''Build a dict of values eligible for substitution; using global vars and *-vars-*.txt files.
        In case of values with lists, pick one random value from the list.
     '''
@@ -210,7 +211,7 @@ def SncConnection(snc,user,pwd):
 def SncResource(sncclient,snctable):
     return sncclient.resource(api_path='/table/{}'.format(snctable))
 
-def ReadQualifyingTickets(sco):
+def ReadQualifyingTickets(sco,cfg):
     '''Read from ServiceNow, return the result or raise an exception.'''
     qb=pysnow.QueryBuilder().field('active').equals("1")
     if cfg.get('snc_state_ignore',"6"):
@@ -300,7 +301,7 @@ def UpdateTicket(sco,num,dta):
         return "[simulation] {}".format(dta)
     return sco.update(query={'number': num},payload=dta)
 
-def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
+def ActionsOnTicket(num,rname,tkt,acts,subargs,sco,cfg):
     '''Perform the wished actons on a matching ticket.'''
     for act1 in acts:
         runargs=dict(tkt)            # Build a dict of all possible variables to substitute
@@ -320,9 +321,9 @@ def ActionsOnTicket(num,rname,tkt,acts,subargs,sco):
                 prm[fld_comment]="{}402I {} -> {}".format(mpfx,robotname,rname)
             for key,val in prm.items():    # Substitute variables, e.g. {number}
                 try:
-                    prm[key]=SelectSingleValue(val,rname,key).format(**runargs)      # Pick value & substitute value
-                    if prm[key][0]=='[' and prm[key][-1]==']':                       # Got a list? Pick single value
-                        prm[key]=str(SelectSingleValue(eval(prm[key]),rname,key))
+                    prm[key]=SelectSingleValue(val,rname,key,cfg).format(**runargs)      # Pick value & substitute value
+                    if prm[key][0]=='[' and prm[key][-1]==']':                           # Got a list? Pick single value
+                        prm[key]=str(SelectSingleValue(eval(prm[key]),rname,key,cfg))
                 except KeyError:
                     pass
             rsp=UpdateTicket(sco,num,prm)
@@ -357,7 +358,7 @@ def ProcessSingleTicket(num,tkt,rules,subargs,cfg,sco):
         dbgmsg("#{} {}:".format(num,rname),"282")
         if TicketMatchesRule(num,tkt,rname,rle["find"],subargs):
             prtmsg("#{} == {} - {}".format(num,rname,tkt[cfg.get('snc_shw_descr','short_description')][0:127]),"202")
-            actions=ActionsOnTicket(num,rname,tkt,rle["act"],subargs,sco)
+            actions=ActionsOnTicket(num,rname,tkt,rle["act"],subargs,sco,cfg)
             if cfg.get('first_match_only',False):
                 return actions
     if not actions and not quiet:
@@ -372,11 +373,11 @@ def LoopRobotsOnce(scli):
         global mpfx
         mpfx=cfg.get('msg_prefix',mpfx0)
         sco=SncResource(scli,cfg.get('snc_table','incident'))
-        tkts=ReadQualifyingTickets(sco)
+        tkts=ReadQualifyingTickets(sco,cfg)
         if tkts:
             try:
                 rules=ReadCfg(GetCfgFileName(robotname))
-                subargs=GetSubArgs(robotname)
+                subargs=GetSubArgs(robotname,cfg)
                 dbgmsg("{} n={}, {}".format(robotname,len(tkts),rules),"281")
                 for tkt in tkts:
                     num=tkt["number"]
@@ -397,7 +398,7 @@ def TicketSupervisor(scli):
         for rle in ReadCfg(GetCfgFileName(robotname)):
             dbgmsg("{}/{} cfg: {}".format(me,robotname,rle),"001")
         sco=SncResource(scli,cfg.get('snc_table','incident'))
-        prtmsg("... right now, {} eligible {} tickets for {}.".format(len(ReadQualifyingTickets(sco)),cfg.get('snc_table','incident'),robotname),"009")
+        prtmsg("... right now, {} eligible {} tickets for {}.".format(len(ReadQualifyingTickets(sco,cfg)),cfg.get('snc_table','incident'),robotname),"009")
 
     while True:
         try:
